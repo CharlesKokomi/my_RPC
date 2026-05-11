@@ -15,7 +15,11 @@
 #include <chrono>
 #include <thread>
 #include <cstdlib>
+#include <cstdio>
+#include <memory>
+#include <stdexcept>
 #include <string>
+#include <array>
 #define MAX_EVENTS 1024
 #define PORT 9000
 void startHeartbeat(std::string ip, int port) {
@@ -50,6 +54,40 @@ void startHeartbeat(std::string ip, int port) {
             std::this_thread::sleep_for(std::chrono::seconds(30));
         }
     }).detach();
+}
+std::string getPublicIP() {
+    std::array<char, 128> buffer;
+    // 优先使用你测试成功的 ifconfig.me，备选 ipify.org
+    std::vector<std::string> apis = {
+        "http://ifconfig.me",
+        "http://api.ipify.org"
+    };
+
+    for (const auto& api : apis) {
+        // 使用 curl 获取，设置 3 秒超时
+        std::string cmd = "curl --silent --connect-timeout 3 " + api;
+        std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd.c_str(), "r"), pclose);
+        
+        if (pipe) {
+            std::string result;
+            while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
+                result += buffer.data();
+            }
+            // 清理掉返回结果中可能的换行符、空格
+            result.erase(std::remove(result.begin(), result.end(), '\n'), result.end());
+            result.erase(std::remove(result.begin(), result.end(), '\r'), result.end());
+            result.erase(std::remove(result.begin(), result.end(), ' '), result.end());
+
+            // 简单的格式验证：包含点号且非空
+            if (!result.empty() && result.find('.') != std::string::npos) {
+                return result; 
+            }
+        }
+    }
+    
+    // 如果全部失败，这里可以保留一个默认值，或者抛出异常提醒
+    std::cerr << "[Critical] 无法获取公网IP，请检查网络连接！" << std::endl;
+    return "127.0.0.1"; 
 }
 // 将 FD 设为非阻塞
 void setNonBlocking(int fd) {
@@ -89,7 +127,9 @@ int main() {
     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, listen_fd, &ev);
 
     std::cout << "RPC Engine Started on Port " << PORT << "..." << std::endl;
-    startHeartbeat("139.159.140.251",9000);
+    std::string my_ip = getPublicIP();
+    std::cout << "[System] 自动识别公网 IP: " << my_ip << std::endl;
+    startHeartbeat(my_ip,9000);
     while (true) {
         int nfds = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
         for (int i = 0; i < nfds; ++i) {
