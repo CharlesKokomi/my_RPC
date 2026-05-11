@@ -24,49 +24,32 @@ void startHeartbeat(std::string ip, int port) {
         std::string gist_id = "8991b3af79c3b056768177e4bb84156f";
         std::string token = "";
         
-        // 为当前服务器生成一个唯一的 Key，例如 "server_123_45_67_89"
-        // 这样多台服务器同时运行就不会互相覆盖，而是各自占据 Map 的一个 Key
-        std::string server_key = "server_" + ip;
-        std::replace(server_key.begin(), server_key.end(), '.', '_'); // 把 IP 里的点换成下划线
+        // 每个服务器使用独立的文件名，如 "node_139_159_140_251.json"
+        std::string filename = "node_" + ip;
+        std::replace(filename.begin(), filename.end(), '.', '_');
+        filename += ".json";
 
         while (true) {
-            // 1. 获取当前 Unix 时间戳
             long long now = std::chrono::duration_cast<std::chrono::seconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
 
-            // 2. 构造 JSON 负载
-            // 注意：这里使用了 GitHub API 的 PATCH 方法。
-            // 我们通过 "files" -> "nodes.json" -> "content" 来更新文件内容。
-            // 这里的转义比较复杂，核心是构造出：{"ip":"x.x.x.x", "port":9000, "last_heartbeat":123456}
+            // 这里直接存放当前节点的信息，不再需要嵌套 server_key 层级
             std::string content = "{\\\\\\\"ip\\\\\\\":\\\\\\\"" + ip + "\\\\\\\",\\\\\\\"port\\\\\\\":" 
                                   + std::to_string(port) + ",\\\\\\\"last_heartbeat\\\\\\\":" 
                                   + std::to_string(now) + "}";
             
-            // 为了支持多节点，我们需要在 Gist 里保留其他服务器的信息。
-            // 简单做法是每次 PATCH 只更新属于自己的那个片段（GitHub API 会合并内容）
-            std::string json_payload = "{\\\"files\\\":{\\\"nodes.json\\\":{\\\"content\\\":\\\"{\\\\\\\"" 
-                                       + server_key + "\\\\\\\":" + content + "}\\\"} } }";
+            // 注意：files 里的 Key 动态改为 filename
+            std::string json_payload = "{\\\"files\\\":{\\\"" + filename + "\\\":{\\\"content\\\":\\\"" + content + "\\\"} } }";
 
-            // 3. 构造 curl 命令
             std::string cmd = "curl -L -X PATCH "
                               "-H \"Authorization: token " + token + "\" "
-                              "-H \"Accept: application/vnd.github.v3+json\" "
                               "-d \"" + json_payload + "\" "
                               "https://api.github.com/gists/" + gist_id + " > /dev/null 2>&1";
 
-            // 执行命令
-            int ret = system(cmd.c_str());
-            
-            if (ret == 0) {
-                std::cout << "[Heartbeat] 已续约，时间戳: " << now << std::endl;
-            } else {
-                std::cerr << "[Heartbeat] 续约失败，检查网络或 Token" << std::endl;
-            }
-
-            // 4. 每 30 秒跳动一次
+            system(cmd.c_str());
             std::this_thread::sleep_for(std::chrono::seconds(30));
         }
-    }).detach(); // 使用 detach 让线程在后台独立运行
+    }).detach();
 }
 // 将 FD 设为非阻塞
 void setNonBlocking(int fd) {
