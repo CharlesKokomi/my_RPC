@@ -50,7 +50,10 @@ void startHeartbeat(std::string ip, int port) {
                               "-d \"" + json_payload + "\" "
                               "https://api.github.com/gists/" + gist_id + " > /dev/null 2>&1";
 
-            system(cmd.c_str());
+            int ret = system(cmd.c_str());
+            if (ret != 0) {
+                std::cout<<"system(cmd.c_str())返回值不为0!"<<std::endl;
+            }
             std::this_thread::sleep_for(std::chrono::seconds(30));
         }
     }).detach();
@@ -66,8 +69,8 @@ std::string getPublicIP() {
     for (const auto& api : apis) {
         // 使用 curl 获取，设置 3 秒超时
         std::string cmd = "curl --silent --connect-timeout 3 " + api;
-        std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd.c_str(), "r"), pclose);
-        
+        auto deleter = [](FILE* f) { pclose(f); };
+        std::unique_ptr<FILE, decltype(deleter)> pipe(popen(cmd.c_str(), "r"), deleter);
         if (pipe) {
             std::string result;
             while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
@@ -103,6 +106,7 @@ void setBlocking(int fd) {
 
 int main() {
     ThreadPool pool(2);
+    ImageProcessor processor;
     int listen_fd = socket(AF_INET, SOCK_STREAM, 0);
     int opt = 1;
     setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
@@ -197,13 +201,13 @@ int main() {
                 // 将 FD 从 Epoll 中摘除，防止其他线程触发重复事件
                 epoll_ctl(epoll_fd, EPOLL_CTL_DEL, client_fd, NULL);
 
-                pool.enqueue([client_fd, header, body_buf = std::move(body_buf)]() {
+                pool.enqueue([client_fd, header,&processor, body_buf = std::move(body_buf)]() {
                     std::cout << "[Thread " << std::this_thread::get_id() << "] 开始处理 FD: " << client_fd << std::endl;
                     
                     myrpc::ImageRequest req;
                     if (req.ParseFromArray(body_buf.data(), body_buf.size())) {
                         std::string processed_bytes;
-                        if (ImageProcessor::process(header.type, req.image_data(), processed_bytes)) {
+                        if (processor.process(header.type, req.image_data(), processed_bytes)) {
                             
                             myrpc::ImageResponse resp;
                             resp.set_processed_data(processed_bytes);
