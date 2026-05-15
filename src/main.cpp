@@ -22,76 +22,7 @@
 #include <array>
 #define MAX_EVENTS 1024
 #define PORT 9000
-void startHeartbeat(std::string ip, int port) {
-    // 开启一个后台线程，不阻塞主程序的 epoll 循环
-    std::thread([=]() {
-        std::string gist_id = "8991b3af79c3b056768177e4bb84156f";
-        std::string token = "";
-        
-        // 每个服务器使用独立的文件名，如 "node_139_159_140_251.json"
-        std::string filename = "node_" + ip;
-        std::replace(filename.begin(), filename.end(), '.', '_');
-        filename += ".json";
 
-        while (true) {
-            long long now = std::chrono::duration_cast<std::chrono::seconds>(
-                std::chrono::system_clock::now().time_since_epoch()).count();
-
-            // 这里直接存放当前节点的信息，不再需要嵌套 server_key 层级
-            std::string content = "{\\\\\\\"ip\\\\\\\":\\\\\\\"" + ip + "\\\\\\\",\\\\\\\"port\\\\\\\":" 
-                                  + std::to_string(port) + ",\\\\\\\"last_heartbeat\\\\\\\":" 
-                                  + std::to_string(now) + "}";
-            
-            // 注意：files 里的 Key 动态改为 filename
-            std::string json_payload = "{\\\"files\\\":{\\\"" + filename + "\\\":{\\\"content\\\":\\\"" + content + "\\\"} } }";
-
-            std::string cmd = "curl -L -X PATCH "
-                              "-H \"Authorization: token " + token + "\" "
-                              "-d \"" + json_payload + "\" "
-                              "https://api.github.com/gists/" + gist_id + " > /dev/null 2>&1";
-
-            int ret = system(cmd.c_str());
-            if (ret != 0) {
-                std::cout<<"system(cmd.c_str())返回值不为0!"<<std::endl;
-            }
-            std::this_thread::sleep_for(std::chrono::seconds(30));
-        }
-    }).detach();
-}
-std::string getPublicIP() {
-    std::array<char, 128> buffer;
-    // 优先使用你测试成功的 ifconfig.me，备选 ipify.org
-    std::vector<std::string> apis = {
-        "http://ifconfig.me",
-        "http://api.ipify.org"
-    };
-
-    for (const auto& api : apis) {
-        // 使用 curl 获取，设置 3 秒超时
-        std::string cmd = "curl --silent --connect-timeout 3 " + api;
-        auto deleter = [](FILE* f) { pclose(f); };
-        std::unique_ptr<FILE, decltype(deleter)> pipe(popen(cmd.c_str(), "r"), deleter);
-        if (pipe) {
-            std::string result;
-            while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
-                result += buffer.data();
-            }
-            // 清理掉返回结果中可能的换行符、空格
-            result.erase(std::remove(result.begin(), result.end(), '\n'), result.end());
-            result.erase(std::remove(result.begin(), result.end(), '\r'), result.end());
-            result.erase(std::remove(result.begin(), result.end(), ' '), result.end());
-
-            // 简单的格式验证：包含点号且非空
-            if (!result.empty() && result.find('.') != std::string::npos) {
-                return result; 
-            }
-        }
-    }
-    
-    // 如果全部失败，这里可以保留一个默认值，或者抛出异常提醒
-    std::cerr << "[Critical] 无法获取公网IP，请检查网络连接！" << std::endl;
-    return "127.0.0.1"; 
-}
 // 将 FD 设为非阻塞
 void setNonBlocking(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
@@ -131,9 +62,7 @@ int main() {
     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, listen_fd, &ev);
 
     std::cout << "RPC Engine Started on Port " << PORT << "..." << std::endl;
-    std::string my_ip = getPublicIP();
-    std::cout << "[System] 自动识别公网 IP: " << my_ip << std::endl;
-    startHeartbeat(my_ip,9000);
+    
     while (true) {
         int nfds = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
         for (int i = 0; i < nfds; ++i) {
