@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rpc-image-processor
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: image-rpc
+  template:
+    metadata:
+      labels:
+        app: image-rpc
+    spec:
+      # --- 新增部分：告诉 K8s 使用 regcred 密钥来拉取镜像 ---
+      imagePullSecrets:
+      - name: regcred
+      # --------------------------------------------------
+      containers:
+      - name: processor
+        image: swr.cn-south-1.myhuaweicloud.com/lmy_rpc/image-processor:v2
+        ports:
+        - containerPort: 9000
+        env:
+        - name: LD_LIBRARY_PATH
+          value: "/app/lib"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rpc-service
+  namespace: default
+  annotations:
+    # 这一行是关键，告诉 Prometheus 别来抓取这个 Service
+    prometheus.io/scrape: "false"
+spec:
+  # 提示：如果 LoadBalancer 一直 pending，可以改为 NodePort
+  type: LoadBalancer
+  # type: NodePort 
+  # externalTrafficPolicy: Local
+  selector:
+    app: image-rpc
+  ports:
+    - protocol: TCP
+      port: 9000
+      targetPort: 9000
+      # nodePort: 30900

@@ -1,0 +1,31 @@
+prometheus:
+  prometheusSpec:
+    nodeSelector:
+      kubernetes.io/hostname: k3s-master
+    tolerations:
+    - key: "node-role.kubernetes.io/master"
+      operator: "Exists"
+      effect: "NoSchedule"
+    resources:
+      requests:
+        memory: "400Mi"
+      limits:
+        memory: "800Mi"
+    retention: 2d
+
+grafana:
+  adminPassword: admin
+  nodeSelector:
+    kubernetes.io/hostname: k3s-master
+  tolerations:
+  - key: "node-role.kubernetes.io/master"
+    operator: "Exists"
+    effect: "NoSchedule"
+prometheusOperator:
+  admissionWebhooks:
+    patch:
+      image:
+        registry: registry.cn-hangzhou.aliyuncs.com
+        repository: google_containers/kube-webhook-certgen
+        tag: v1.5.1
+        sha: ""

@@ -36,7 +36,7 @@ void setBlocking(int fd) {
 }
 
 int main() {
-    ThreadPool pool(2);
+    ThreadPool pool(128);
     ImageProcessor processor;
     int listen_fd = socket(AF_INET, SOCK_STREAM, 0);
     int opt = 1;
@@ -52,7 +52,7 @@ int main() {
         return 1;
     }
     
-    listen(listen_fd, 5);
+    listen(listen_fd, 1024);
     setNonBlocking(listen_fd);
 
     int epoll_fd = epoll_create1(0);
@@ -103,34 +103,20 @@ int main() {
                     close(client_fd);
                     continue;
                 }
-
-                // 2. 核心修复逻辑：阻塞式读满 Body
-                setBlocking(client_fd); 
-
-                std::vector<char> body_buf(header.body_len);
-                int total_recv = 0;
-                bool read_error = false;
-
-                while (total_recv < (int)header.body_len) {
-                    int r = recv(client_fd, body_buf.data() + total_recv, header.body_len - total_recv, 0);
-                    if (r == 0) {
-                        std::cerr << "[Debug] Body读取中对端意外关闭，已读: " << total_recv << std::endl;
-                        read_error = true;
-                        break;
-                    } else if (r < 0) {
-                        if (errno == EINTR) continue; // 信号中断，不算错
-                        std::cerr << "[Debug] Body读取系统错误, errno: " << errno << std::endl;
-                        read_error = true;
-                        break;
-                    }
-                    total_recv += r;
-                }
-
-                // 将数据处理丢入线程池，主线程立即去处理下一个 Epoll 事件
-                // 将 FD 从 Epoll 中摘除，防止其他线程触发重复事件
+                //立即从 epoll 中移除，交给线程池全权负责
                 epoll_ctl(epoll_fd, EPOLL_CTL_DEL, client_fd, NULL);
-
-                pool.enqueue([client_fd, header,&processor, body_buf = std::move(body_buf)]() {
+                //将 client_fd 的阻塞状态恢复，方便 Worker 线程简单处理
+                setBlocking(client_fd); 
+                
+                pool.enqueue([client_fd, header,&processor]() {
+                    std::vector<char> body_buf(header.body_len);
+                    // 在这里进行耗时的阻塞读 Body
+                    int total_recv = 0;
+                    while (total_recv < (int)header.body_len) {
+                        int r = recv(client_fd, body_buf.data() + total_recv, header.body_len - total_recv, 0);
+                        if (r <= 0) { close(client_fd); return; }
+                        total_recv += r;
+                    }
                     std::cout << "[Thread " << std::this_thread::get_id() << "] 开始处理 FD: " << client_fd << std::endl;
                     
                     myrpc::ImageRequest req;

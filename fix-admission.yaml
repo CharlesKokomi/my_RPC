@@ -1,0 +1,24 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: monitor-kube-prometheus-st-admission-create
+  namespace: monitoring
+spec:
+  template:
+    spec:
+      containers:
+      - name: create
+        image: registry.cn-hangzhou.aliyuncs.com/google_containers/kube-webhook-certgen:v1.5.1
+        args:
+        - create
+        - --host=monitor-kube-prometheus-st-operator,monitor-kube-prometheus-st-operator.monitoring.svc
+        - --namespace=monitoring
+        - --secret-name=monitor-kube-prometheus-st-admission
+      restartPolicy: OnFailure
+      # 让它跑在管理机上，绕过污点
+      nodeSelector:
+        kubernetes.io/hostname: k3s-master
+      tolerations:
+      - key: "node-role.kubernetes.io/master"
+        operator: "Exists"
+        effect: "NoSchedule"

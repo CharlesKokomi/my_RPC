@@ -3,7 +3,7 @@
 
 ImageProcessor::ImageProcessor() : env(ORT_LOGGING_LEVEL_ERROR, "Inference") {
     // 1. 初始化推理设置
-    session_options.SetIntraOpNumThreads(1);
+    session_options.SetIntraOpNumThreads(0);
     session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
 
     // 2. 加载模型 (注意路径与你 ls -lh 展示的一致)
@@ -49,10 +49,11 @@ void ImageProcessor::runSuperResolution(const cv::Mat& src, cv::Mat& dst) {
     // 6. 后处理：将结果转回图像
     float* output_data = output_tensors[0].GetTensorMutableData<float>();
     cv::Mat result_y(224, 224, CV_32F, output_data);
-    result_y.convertTo(result_y, CV_8U, 255.0); // 反归一化
+    cv::Mat result_y_safe;
+    result_y.convertTo(result_y_safe, CV_8U, 255.0); // 反归一化
 
     // 7. 合并通道并缩放到原始大小或放大显示
-    channels[0] = result_y;
+    channels[0] = result_y_safe;
     cv::merge(channels, ycrcb);
     cv::Mat out_bgr;
     cv::cvtColor(ycrcb, out_bgr, cv::COLOR_YCrCb2BGR);
